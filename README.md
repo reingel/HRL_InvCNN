@@ -1,2 +1,4 @@
 # HRL_InvCNN
-Hierarchical Reinforcement Learning by Inverse Convolutional Neural Network
+
+This repository is to test the possibility of the Hierarchical Reinforcement Learning by Inverse Convolutional Neural Network.
+
