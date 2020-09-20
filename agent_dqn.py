@@ -17,31 +17,29 @@ class EpsilonGreedy():
         self.min_value = mv
     
     def __call__(self, action):
-        if self.value < rd.rand():
-            chosen_action = rd.choice(self.action_space)
-            return chosen_action
+        self.value = max(self.value * self.factor, self.min_value)
+
+        if rd.rand() < self.value:
+            return random.choice(self.action_space)
         else:
             return action
-
-        self.value = max(self.value * self.factor, self.min_value)
 
 
 class ReplayMemory():
     def __init__(self, capacity=10000):
         self.capacity = capacity
         self.memory = []
+        self.n = 0
 
     def reset(self):
         self.memory = []
     
-    def __len__(self):
-        return len(self.memory)
-    
-    def __getitem__(self, i):
-        return self.memory[i]
-    
     def append(self, sample):
         self.memory.append(sample)
+        if len(self.memory) > self.capacity:
+            self.memory.pop(0)
+
+        self.n = len(self.memory)
     
     def sample(self, n=100):
         return random.sample(self.memory, n)
@@ -54,12 +52,15 @@ class Qnet(nn.Module):
         self.lay1 = nn.Linear(4, 32)
         self.lay2 = nn.Linear(32, 128)
         self.lay3 = nn.Linear(128, 6)
+
+        self.lay1.weight.data.copy_(self.lay1.weight.data * 0.01)
+        self.lay2.weight.data.copy_(self.lay2.weight.data * 0.01)
     
     def forward(self, s):
         u = torch.FloatTensor(s)
 
-        x = torch.tanh(self.lay1(u))
-        x = torch.tanh(self.lay2(x))
+        x = torch.relu(self.lay1(u))
+        x = torch.relu(self.lay2(x))
         Q = self.lay3(x)
 
         return Q
@@ -75,8 +76,10 @@ class AgentDqn():
         self.behavior_network = Qnet()
         self.optimizer = torch.optim.SGD(self.behavior_network.parameters(), lr=lr)
 
-        self.buffer = ReplayMemory(capacity=10000)
+        self.buffer = ReplayMemory(capacity=100000)
         self.explorer = EpsilonGreedy(action_space, iv=1.0, fac=0.999, mv=0.05)
+
+        self.sample_count = 0
     
     def reset(self):
         self.buffer.reset()
@@ -88,15 +91,30 @@ class AgentDqn():
 
         return chosen
     
-    def train(self, sample, i_episode):
+    def train(self, sample):
         self.buffer.append(sample)
+        self.sample_count += 1
 
-        if i_episode + 1 % self.train_interval == 0:
-            samples = random.sample(self.buffer, self.n_minibatch)
+        if self.sample_count % self.train_interval == 0:
+            samples = self.buffer.sample(self.n_minibatch)
+
+            states = [sample.state for sample in samples]
+            actions = [sample.action for sample in samples]
+            rewards = [sample.reward for sample in samples]
+            next_states = [sample.next_state for sample in samples]
+            dones = [sample.done for sample in samples]
+
+            Q1s = self.target_network(next_states).detach()
+            U = torch.FloatTensor(rewards) + self.gamma * torch.max(Q1s, dim=1)[0] * \
+                (1.0 - torch.FloatTensor(dones))
+
+            Qs = self.behavior_network(states)
+            Q = [(u - q[a])**2 for u, q, a in zip(U, Qs, actions)]
+            loss = sum(Q)
 
             for sample in samples:
                 s, a, r, s1, done = sample
-                print(s,a,r,s1,done)
+                # print(s,a,r,s1,done)
 
                 U = r
                 if not done:
@@ -105,19 +123,10 @@ class AgentDqn():
                 Q = self.behavior_network(s)[a]
                 loss = (U - Q)**2
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
             
             for bparam, tparam in zip(self.behavior_network.parameters(), self.target_network.parameters()):
                 tparam.data.copy_(self.alpha * bparam.data + (1 - self.alpha) * tparam.data)
             
-
-if __name__ == '__main__':
-    agent = AgentDqn()
-
-    s = (1, 1, 0, 1)
-
-    a = agent(s)
-
-    print(a)
