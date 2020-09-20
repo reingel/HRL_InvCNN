@@ -1,20 +1,12 @@
 import gym
 import numpy as np
 import numpy.random as rd
-from agent_dnn import AgentDnn
+from agent_dqn import AgentDqn, Sample
 
 env = gym.make('Taxi-v3').unwrapped
-actions = range(env.action_space.n)
+action_space = range(env.action_space.n)
 
-agt = AgentDnn()
-
-epsilon = 0.1
-
-states = []
-actions = []
-rewards = []
-next_states = []
-dones = []
+agt = AgentDqn(action_space=action_space, train_interval=100, n_minibatch=10, alpha=0.01, gamma=0.99, lr=0.01)
 
 for i in range(1000):
     s = env.reset()
@@ -24,28 +16,14 @@ for i in range(1000):
     step = 0
     for j in range(1000):
         state = list(env.decode(s))
-        if rd.rand() < epsilon:
-            action = env.action_space.sample()
-        else:
-            Q = agt(state)
-            action = np.argmax(Q.detach().numpy())
+        action = agt(state)
 
         s1, reward, done, _ = env.step(action)
         next_state = list(env.decode(s1))
 
-        states.append(state)
-        actions.append(action)
-        rewards.append(reward)
-        next_states.append(next_state)
-        dones.append(done)
+        sample = Sample(state, action, reward, next_state, done)
 
-        if done or step % 10 == 0:
-            agt.train(states, actions, rewards, next_states, dones)
-            states = []
-            actions = []
-            rewards = []
-            next_states = []
-            dones = []
+        agt.train(sample, i)
 
         R += reward
         s = s1
@@ -56,4 +34,4 @@ for i in range(1000):
 
     env.render()
     env.close()
-    print(i, R, step)
+    print(f'i = {i}, R = {R}, step = {step}')
